@@ -1,100 +1,44 @@
-# Claude Slack Bot
+# Operar el bot de Slack
 
-Bot de Slack que integra Claude Code para interactuar con repositorios, Jira, Supabase y NotebookLM directamente desde Slack.
+El bot permite trabajar sobre los repositorios autorizados desde conversaciones
+de Slack. Selecciona la instancia, zona y proyecto vigentes desde el inventario
+operativo antes de conectar a la VM.
 
-## Setup
+## Preparación
 
-### Requisitos
+Instala las dependencias y completa `.env` a partir del ejemplo con la app de Slack
+y el directorio de trabajo autorizado.
 
-- Node.js 20+
-- Claude Code CLI instalado con OAuth token
-- Slack App con Socket Mode habilitado
-- (Opcional) Groq API key para transcripcion de audio
-
-### Variables de entorno
-
-```bash
-cp .env.example .env
-```
-
-Configura los valores de la app de Slack y el directorio que el bot puede usar
-para trabajar. La credencial de Claude Code se configura en la VM según
-[las instrucciones de autenticación](CLAUDE.md#auth-de-claude-code-la-del-bot-no-la-de-los-mcp).
-
-### Instalar y correr
-
-```bash
+```sh
 npm ci
 npm run build
 npm start
 ```
 
-### Desarrollo
+Usa la identidad del ambiente para Firestore. En desarrollo, prepara credenciales
+de Application Default Credentials para ese proyecto.
 
-```bash
-npm run dev
-```
+## Autenticación
 
-### Systemd (produccion)
+Renueva la credencial de Claude Code con `claude setup-token`, completa la
+autorización del operador en el navegador y guarda el token en el entorno privado
+del servicio. Reinícialo y comprueba una consulta desde Slack.
 
-```ini
-[Unit]
-Description=Claude Code Slack Bot
-After=network.target
+Para diagnosticar un fallo de autenticación, prueba desde el directorio de la
+instalación para conservar la resolución del SDK. Mantén tokens y respuestas
+de autorización fuera de logs y artefactos públicos.
 
-[Service]
-Type=simple
-User=<usuario>
-WorkingDirectory=/home/<usuario>/claude-slack-bot
-ExecStart=/usr/bin/node dist/index.js
-Restart=always
-RestartSec=10
-EnvironmentFile=/home/<usuario>/claude-slack-bot/.env
-Environment=PATH=/home/<usuario>/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=HOME=/home/<usuario>
+Sigue los procedimientos de [Atlassian](docs/atlassian-auth.md) y
+[NotebookLM](docs/notebooklm-auth.md) para renovar esas integraciones.
 
-[Install]
-WantedBy=multi-user.target
-```
+## Publicar y comprobar
 
-## Uso en Slack
+En la instalación de la VM, actualiza al commit revisado, instala con `npm ci`,
+compila y reinicia el servicio `claude-slack-bot`. Conserva el commit anterior para
+revertir y revisa el journal después del reinicio.
 
-### Comandos
+Prueba una conversación existente y otra nueva con un usuario autorizado y
+comprueba los accesos del bot al directorio e integraciones esperados.
+Usa permisos de IAM y sudo limitados a esas operaciones.
 
-| Comando | Descripcion |
-|---|---|
-| `cwd` | Ver directorio de trabajo actual |
-| `cwd <repo>` | Cambiar a un repo (relativo a BASE_DIRECTORY) |
-| `cwd /ruta/absoluta` | Cambiar a ruta absoluta |
-
-### Interaccion
-
-- **DM**: Escribe directamente al bot
-- **Canales**: Menciona `@Claude Code` en un mensaje o hilo
-- **Archivos**: Arrastra un archivo al chat junto con tu mensaje
-- **Audio**: Envia una nota de voz y se transcribe automaticamente
-
-### Integraciones
-
-Renueva el acceso a [Jira y Confluence](docs/atlassian-auth.md) o
-[NotebookLM](docs/notebooklm-auth.md) con el procedimiento de cada integración.
-
-## Persistencia (Firestore)
-
-Firestore permite retomar una conversación después de reiniciar el servicio. Usa el proyecto autorizado del ambiente.
-
-- En la VM GCP: usa Application Default Credentials via metadata server (sin keys).
-- En local: ejecutar `gcloud auth application-default login` una vez.
-
-## Sudoers para self-deploy
-
-Para que el bot pueda redeployarse a si mismo, agregar a `/etc/sudoers.d/claude-slack-bot`:
-
-```
-nicolas ALL=(root) NOPASSWD: /bin/systemctl restart claude-slack-bot, /bin/systemctl status claude-slack-bot, /bin/journalctl -u claude-slack-bot *
-```
-
-## Permisos en Google Cloud
-
-Limita los permisos de la cuenta de servicio a las operaciones del bot. Las
-restricciones de herramientas del SDK complementan los permisos de IAM.
+Consulta [AGENTS.md](AGENTS.md) para mantener el repositorio.
