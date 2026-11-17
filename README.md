@@ -1,146 +1,44 @@
-# Claude Slack Bot
+# Operar el bot de Slack
 
-Bot de Slack que integra Claude Code para interactuar con repositorios, Jira, Supabase y NotebookLM directamente desde Slack.
+El bot permite trabajar sobre los repositorios autorizados desde conversaciones
+de Slack. Selecciona la instancia, zona y proyecto vigentes desde el inventario
+operativo antes de conectar a la VM.
 
-## Features
+## Preparación
 
-- **Chat con Claude Code** via DM o @mention en canales
-- **Auto-deteccion de repo** — si hay un solo repo, lo usa automaticamente. Si hay varios, Claude elige basandose en el contexto
-- **Sesiones persistentes** — mantiene el contexto de la conversacion por thread/DM, persistido en Firestore (sobrevive a restarts)
-- **Modelo Opus 4.7** fijo por default
-- **Operaciones de infra** — gcloud read/write con denylist para ops irreversibles
-- **Streaming** — muestra respuestas progresivamente con indicador de procesamiento
-- **Archivos adjuntos** — sube imagenes, PDFs o cualquier archivo y Claude los analiza
-- **Transcripcion de audio** — envia notas de voz y se transcriben automaticamente via Groq (Whisper)
-- **Formato nativo de Slack** — convierte markdown a mrkdwn, tablas a Slack table blocks
-- **Notificacion al completar** — envia "Done" como mensaje nuevo para que recibas notificacion
-- **Skills del proyecto** — carga CLAUDE.md y skills de `.claude/` del repo
-- **MCP Servers integrados**:
-  - Atlassian (Jira/Confluence) via plugin
-  - Supabase via HTTP MCP
-  - NotebookLM via stdio MCP
+Instala las dependencias y completa `.env` a partir del ejemplo con la app de Slack
+y el directorio de trabajo autorizado.
 
-## Stack
-
-- **Runtime**: Node.js 20 + TypeScript
-- **SDK**: `@anthropic-ai/claude-agent-sdk`
-- **Slack**: `@slack/bolt` (Socket Mode)
-- **Audio**: Groq API (Whisper large-v3)
-- **Formato**: `slackify-markdown`
-
-## Estructura
-
-```
-src/
-  index.ts          — Entry point, Slack event handlers, file processing
-  claude.ts         — SDK query wrapper, session management, MCP config, hooks
-  directories.ts    — Working directory management por conversacion
-  firestore.ts      — Persistencia de sesiones y cwd en Firestore (ADC)
-  format.ts         — Markdown → Slack mrkdwn, table blocks
-```
-
-## Setup
-
-### Requisitos
-
-- Node.js 20+
-- Claude Code CLI instalado con OAuth token
-- Slack App con Socket Mode habilitado
-- (Opcional) Groq API key para transcripcion de audio
-
-### Variables de entorno
-
-```bash
-cp .env.example .env
-```
-
-```env
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
-SLACK_SIGNING_SECRET=...
-BASE_DIRECTORY=/home/user/repos
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-GROQ_API_KEY=gsk_...        # Opcional, para transcripcion de audio
-```
-
-### Instalar y correr
-
-```bash
-npm install
+```sh
+npm ci
 npm run build
 npm start
 ```
 
-### Desarrollo
+Usa la identidad del ambiente para Firestore. En desarrollo, prepara credenciales
+de Application Default Credentials para ese proyecto.
 
-```bash
-npm run dev
-```
+## Autenticación
 
-### Systemd (produccion)
+Renueva la credencial de Claude Code con `claude setup-token`, completa la
+autorización del operador en el navegador y guarda el token en el entorno privado
+del servicio. Reinícialo y comprueba una consulta desde Slack.
 
-```ini
-[Unit]
-Description=Claude Code Slack Bot
-After=network.target
+Para diagnosticar un fallo de autenticación, prueba desde el directorio de la
+instalación para conservar la resolución del SDK. Mantén tokens y respuestas
+de autorización fuera de logs y artefactos públicos.
 
-[Service]
-Type=simple
-User=<usuario>
-WorkingDirectory=/home/<usuario>/claude-slack-bot
-ExecStart=/usr/bin/node dist/index.js
-Restart=always
-RestartSec=10
-EnvironmentFile=/home/<usuario>/claude-slack-bot/.env
-Environment=PATH=/home/<usuario>/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=HOME=/home/<usuario>
+Sigue los procedimientos de [Atlassian](docs/atlassian-auth.md) y
+[NotebookLM](docs/notebooklm-auth.md) para renovar esas integraciones.
 
-[Install]
-WantedBy=multi-user.target
-```
+## Publicar y comprobar
 
-## Uso en Slack
+En la instalación de la VM, actualiza al commit revisado, instala con `npm ci`,
+compila y reinicia el servicio `claude-slack-bot`. Conserva el commit anterior para
+revertir y revisa el journal después del reinicio.
 
-### Comandos
+Prueba una conversación existente y otra nueva con un usuario autorizado y
+comprueba los accesos del bot al directorio e integraciones esperados.
+Usa permisos de IAM y sudo limitados a esas operaciones.
 
-| Comando | Descripcion |
-|---|---|
-| `cwd` | Ver directorio de trabajo actual |
-| `cwd <repo>` | Cambiar a un repo (relativo a BASE_DIRECTORY) |
-| `cwd /ruta/absoluta` | Cambiar a ruta absoluta |
-
-### Interaccion
-
-- **DM**: Escribe directamente al bot
-- **Canales**: Menciona `@Claude Code` en un mensaje o hilo
-- **Archivos**: Arrastra un archivo al chat junto con tu mensaje
-- **Audio**: Envia una nota de voz y se transcribe automaticamente
-
-### Plugins y MCP
-
-Los plugins de Claude Code se cargan desde `~/.claude/plugins/`. Los MCP servers HTTP se autentican usando las credenciales de `~/.claude/.credentials.json`.
-
-Para agregar un nuevo MCP server, edita `src/claude.ts` y agrega la config en `mcpServers`.
-
-## Persistencia (Firestore)
-
-Las sesiones (`bot_sessions`) y los `cwd` por conversacion (`bot_directories`) se persisten en Firestore (default DB del proyecto GCP). Esto sobrevive a `systemctl restart`.
-
-- En la VM GCP: usa Application Default Credentials via metadata server (sin keys).
-- En local: ejecutar `gcloud auth application-default login` una vez.
-- Las sesiones expiran a los 30 min de inactividad y se borran del Firestore.
-
-## Sudoers para self-deploy
-
-Para que el bot pueda redeployarse a si mismo, agregar a `/etc/sudoers.d/claude-slack-bot`:
-
-```
-nicolas ALL=(root) NOPASSWD: /bin/systemctl restart claude-slack-bot, /bin/systemctl status claude-slack-bot, /bin/journalctl -u claude-slack-bot *
-```
-
-## Operaciones gcloud
-
-El bot puede ejecutar `gcloud` arbitrariamente desde la VM (usa la service account default). Las operaciones irreversibles estan en `disallowedTools` en `src/claude.ts`:
-
-- `gcloud projects delete`, `compute instances delete`, `sql instances delete`, `firestore databases delete`
-- `rm -rf /`, `rm -rf ~`, `sudo rm`
+Consulta [AGENTS.md](AGENTS.md) para mantener el repositorio.
